@@ -1,0 +1,23 @@
+{
+  "name": "wx-proxy",
+  "version": "1.0.0",
+  "description": "微信公众号 API 中转代理服务 —— 解决家庭动态IP无法加入微信白名单的问题",
+  "main": "server.js",
+  "bin": {
+    "wx-proxy-server": "./server.js",
+    "wx-proxy-client": "./client.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["wechat", "weixin", "公众号", "proxy", "中转", "ip白名单"],
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "form-data": "^4.0.0"
+  }
+}
