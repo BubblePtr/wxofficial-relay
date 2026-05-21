@@ -17,10 +17,11 @@ class WxClient {
 
     if (!this.serverUrl) throw new WxProxyError('serverUrl is required');
 
+    const tlsServername = opts.tlsServername || new URL(this.serverUrl).hostname;
     if (opts.caCertPath && fs.existsSync(opts.caCertPath)) {
-      this.httpsAgent = new https.Agent({ ca: fs.readFileSync(opts.caCertPath) });
+      this.httpsAgent = new https.Agent({ ca: fs.readFileSync(opts.caCertPath), servername: tlsServername });
     } else if (opts.allowInsecureTLS === true) {
-      this.httpsAgent = new https.Agent({ rejectUnauthorized: false });
+      this.httpsAgent = new https.Agent({ rejectUnauthorized: false, servername: tlsServername });
     } else {
       this.httpsAgent = null;
     }
@@ -40,7 +41,12 @@ class WxClient {
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
       };
-      if (this.httpsAgent) opts.httpsAgent = this.httpsAgent;
+      if (this.httpsAgent) {
+        opts.httpsAgent = this.httpsAgent;
+        // Axios otherwise honors HTTP(S)_PROXY and the tunnel can still reject
+        // self-signed relay certificates before our agent setting is applied.
+        opts.proxy = false;
+      }
       if (method === 'get' || method === 'delete') opts.params = data;
       else opts.data = data;
       const res = await axios(opts);
