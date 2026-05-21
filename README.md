@@ -1,188 +1,263 @@
-# wx-proxy
+# wxofficial-relay
 
-微信公众号 API 中转代理服务 —— 解决家庭动态 IP 无法加入微信白名单的问题。
+微信公众号 API 中转服务，用固定公网 IP 解决家庭服务器无法加入微信 IP 白名单的问题。
 
-## 问题
+设计目标很窄：它不是通用代理，也不是云端生成器。Mac mini 负责生成文章、排版和图片；云服务器 relay 只负责从白名单 IP 调微信官方接口。
 
-微信公众号后台要求 API 调用方的 IP 加入白名单才能获取 `access_token` 并调用业务接口。
+## 架构
 
-中国大多数家庭宽带没有固定公网 IPv4，IP 会轮换，无法加入白名单。
+```text
+Mac mini / Hermes Agent
+  -> 生成 Markdown、HTML、封面、正文图片
+  -> multipart/form-data 调用 relay
 
-## 方案
+Cloud server / fixed IP
+  -> 获取并缓存 access_token
+  -> 上传封面永久素材
+  -> 上传正文图片到微信 CDN
+  -> 替换 HTML 中的 img src
+  -> 创建公众号草稿
 
-在固定 IP 的云服务器上部署此代理，家庭服务器通过 HTTP 调用代理间接访问微信 API。
-
+WeChat Official Account
+  -> IP 白名单只需要填云服务器公网 IP
 ```
-家庭服务器(动态IP)  ──HTTP + X-Api-Key──▶  云服务器(固定IP)  ──HTTPS──▶  微信公众平台
-  wx-proxy 客户端                         wx-proxy 服务器              IP 白名单放云服务器
-```
 
-## 部署（云服务器端）
+## 部署
 
 ```bash
-git clone <repo> && cd wx-proxy
-npm install
+git clone https://github.com/BubblePtr/wxofficial-relay.git
+cd wxofficial-relay
+npm ci
 cp .env.example .env
-nano .env          # 填入微信公众号 APP_ID / APP_SECRET / API_KEY
-
-# 测试运行
+nano .env
 node server.js
-
-# 生产运行（推荐 pm2）
-npm install -g pm2
-pm2 start server.js --name wx-proxy
-pm2 save && pm2 startup
 ```
 
-**配置 .env:**
+生产环境建议用 pm2 或 systemd：
+
+```bash
+npm install -g pm2
+pm2 start server.js --name wxofficial-relay
+pm2 save
+pm2 startup
+```
+
+`.env` 至少需要：
 
 ```ini
 WX_APP_ID=wx_your_app_id
 WX_APP_SECRET=your_secret
 PORT=3900
-API_KEY=这里填一个随机字符串    # openssl rand -hex 32
-# 可选：
-RATE_LIMIT_RPM=60              # 每分钟限制 60 次请求
-TOKEN_CACHE_FILE=/tmp/wx-proxy-token.json  # 持久化 token，重启不浪费
+API_KEY=use_openssl_rand_hex_32_here
+RATE_LIMIT_RPM=60
+TOKEN_CACHE_FILE=/tmp/wxofficial-relay-token.json
 ```
 
-**微信公众号后台:**
-设置与开发 → 基本配置 → IP 白名单 → 加入云服务器的公网 IP。
-
-**验证:**
+生成 API key：
 
 ```bash
-# 在服务器上
-curl http://localhost:3900/health
-
-# 从家庭服务器测试
-curl -H "X-Api-Key: $API_KEY" http://<云服务器IP>:3900/api/token
+openssl rand -hex 32
 ```
 
-## 使用（家庭服务器端）
+微信公众号后台需要把云服务器公网 IP 加入：
 
-### 作为 CLI
+```text
+设置与开发 -> 基本配置 -> IP 白名单
+```
+
+## HTTPS
+
+公网部署不要裸 HTTP 传 API key。推荐用 Caddy 或 Nginx 终止 TLS，然后反代到本地 `3900`。
+
+Caddy 示例：
+
+```caddyfile
+wx.example.com {
+  reverse_proxy 127.0.0.1:3900
+}
+```
+
+客户端使用：
 
 ```bash
-# 配置环境变量
-export WX_PROXY_URL=http://43.142.162.14:3900
-export WX_PROXY_KEY=你的API密钥
-
-# 健康检查
+export WX_PROXY_URL=https://wx.example.com
+export WX_PROXY_KEY=your_api_key
 node client.js health
-
-# 新建草稿
-node client.js draft:add '{"articles":[{"title":"测试","content":"<p>正文</p>","thumb_media_id":"","digest":"摘要"}]}'
-
-# 查看草稿列表
-node client.js draft:list
-
-# 上传图片
-node client.js media:uploadimage '{"image_url":"https://example.com/pic.png"}'
-
-# 发布
-node client.js publish:submit '你的草稿media_id'
 ```
 
-### 作为 Node.js 库
+如果临时使用自签证书，客户端可以显式开启不校验证书：
+
+```bash
+export WX_PROXY_INSECURE_TLS=1
+```
+
+这个只建议调试时用。
+
+## Mac mini 侧用法
 
 ```javascript
 const WxClient = require('./client');
+
 const wx = WxClient.create({
-  serverUrl: 'http://43.142.162.14:3900',
-  apiKey: '你的API密钥',
+  serverUrl: process.env.WX_PROXY_URL,
+  apiKey: process.env.WX_PROXY_KEY,
 });
 
-// 健康检查
-const health = await wx.health();
-
-// 上传封面图
-const thumb = await wx.media.uploadThumb('https://example.com/cover.jpg');
-
-// 上传正文图片
-const img = await wx.media.uploadImage('https://example.com/body.png');
-
-// 创建草稿
-const draft = await wx.draft.add({
-  articles: [{
-    title: '文章标题',
-    content: '<p>HTML 正文，图片用 <img src="https://mmbiz.qpic.cn/xxx" /></p>',
-    thumb_media_id: thumb.media_id,
-    author: '作者',
-    digest: '摘要',
-  }]
-});
-
-// 发布草稿
-await wx.publish.submit(draft.media_id);
-
-// 一键发布（自动处理图片上传）
-const result = await wx.publishArticleAuto({
+const result = await wx.createDraftAuto({
   title: '文章标题',
-  content: '<p>包含 <img src="https://a.com/1.png" /> 的文章</p>',
-  thumbUrl: 'https://a.com/cover.jpg',
+  author: '作者',
+  digest: '摘要',
+  contentHtml: html,
+  coverPath: './cover.png',
+  images: [
+    { src: './assets/inline-1.png', path: './assets/inline-1.png' },
+    { src: './assets/inline-2.png', path: './assets/inline-2.png' },
+  ],
+});
+
+console.log(result.media_id);
+```
+
+如果 HTML 里的图片路径和 `assetsDir` 里的文件名能对应，也可以这样：
+
+```javascript
+await wx.createDraftAuto({
+  title: '文章标题',
+  digest: '摘要',
+  contentHtml: html,
+  coverPath: './cover.png',
+  assetsDir: './assets',
 });
 ```
 
-## API 接口
+## CLI
 
-所有 `/api/*` 路由需要 `X-Api-Key` 请求头。
+```bash
+node client.js health
+node client.js token:status
+node client.js draft:list
+node client.js media:upload-cover ./cover.png
+node client.js media:upload-inline ./assets/inline-1.png
+```
 
-### 草稿
+使用 JSON 文件创建草稿：
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/draft/add` | 新建草稿 |
-| GET  | `/api/draft/list` | 草稿列表 (?offset&count) |
-| GET  | `/api/draft/:mediaId`| 草稿详情 |
-| POST | `/api/draft/update` | 更新草稿 |
-| POST | `/api/draft/delete` | 删除草稿 |
+```bash
+node client.js draft:create-auto article.json
+```
 
-### 发布
+`article.json` 示例：
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/publish/submit` | 发布 |
-| POST | `/api/publish/status` | 查询发布状态 |
-| POST | `/api/publish/delete` | 删除已发布 |
+```json
+{
+  "title": "文章标题",
+  "author": "作者",
+  "digest": "摘要",
+  "contentHtml": "<p>正文 <img src=\"./assets/inline-1.png\"></p>",
+  "coverPath": "./cover.png",
+  "images": [
+    { "src": "./assets/inline-1.png", "path": "./assets/inline-1.png" }
+  ]
+}
+```
 
-### 素材
+## API
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/media/uploadthumb` | 上传封面图（通过 URL） |
-| POST | `/api/media/uploadimage` | 上传正文图片（通过 URL） |
+所有 `/api/*` 路由都需要认证。支持：
 
-### 其他
+```http
+X-Api-Key: your_api_key
+```
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET  | `/health` | 健康检查（无需认证） |
-| GET  | `/api/token` | 查看 access_token |
-| POST | `/api/proxy` | 通用转发（任意微信 API） |
+也支持：
 
-## 对比原始项目 (MAPLEYOU/wechat-proxy)
+```http
+Authorization: Bearer your_api_key
+```
 
-| 特性 | 原项目 | wx-proxy |
-|------|--------|----------|
-| 配置方式 | config.js 硬编码 | .env 环境变量 |
-| 日志格式 | console.log 自由格式 | 结构化 JSON 日志 |
-| 速率限制 | 无 | express-rate-limit，可选 |
-| Token 持久化 | 无（重启丢失） | 可选磁盘持久化 |
-| 客户端 SDK | 无 | 完整 SDK + CLI |
-| 通用转发安全性 | 无校验 | path 注入防护 |
-| 错误处理 | 返回 Axios 错误 | 统一错误格式 |
-| 一键发布 | 无 | publishArticle / publishArticleAuto |
-| 草稿更新 | 无 | POST /api/draft/update |
-| 草稿详情 | 无 | GET /api/draft/:mediaId |
-| 发布删除 | 无 | POST /api/publish/delete |
+核心接口：
 
-## 安全建议
+```text
+GET  /health
+GET  /api/token/status
+POST /api/draft/create-auto
+POST /api/media/upload-cover
+POST /api/media/upload-inline-image
+POST /api/draft/add
+GET  /api/draft/list
+GET  /api/draft/:mediaId
+POST /api/draft/update
+POST /api/draft/delete
+```
 
-1. **启用 HTTPS**：在生产环境用 Nginx 反向代理并开启 SSL
-2. **防火墙**：仅对家庭网络的出口 IP 开放端口（如果出口 IP 相对固定的话）
-3. **使用强 API_KEY**：32 位以上随机字符串
-4. **定期轮换** API_KEY 和 AppSecret
+`POST /api/draft/create-auto` 使用 `multipart/form-data`：
+
+```text
+title: string
+author: string
+digest: string
+content_html: string
+content_source_url: string
+cover: file
+images: file[]
+image_map: JSON object, e.g. { "./assets/a.png": "a.png" }
+```
+
+relay 会：
+
+```text
+1. 上传 cover 到 /cgi-bin/material/add_material?type=image
+2. 上传正文图片到 /cgi-bin/media/uploadimg
+3. 把 HTML 中的原始 src 替换为微信 CDN URL
+4. 调 /cgi-bin/draft/add 创建草稿
+```
+
+兼容旧接口：
+
+```text
+POST /api/media/uploadthumb
+POST /api/media/uploadimage
+```
+
+这两个接口接收远程 `image_url`，relay 会下载图片再上传微信。它们只允许 HTTPS 图片 URL，并会拒绝内网、localhost、link-local 地址。主流程仍建议用 multipart 文件上传。
+
+## 安全边界
+
+服务启动时强制要求 `API_KEY`，不能无鉴权运行。
+
+`/api/token/status` 不返回明文 access_token，只返回缓存状态和过期时间。
+
+`/api/proxy` 默认关闭。确实需要通用微信 API 转发时，显式设置：
+
+```ini
+ENABLE_GENERIC_PROXY=1
+```
+
+上传限制：
+
+```text
+默认单图最大 10MB
+允许 image/jpeg、image/png、image/webp、image/gif
+临时文件不落盘，使用内存上传微信
+```
+
+## 推荐 md2wechat 工作流
+
+本地只用 md2wechat 做排版，不让它调用微信 API：
+
+```bash
+md2wechat convert article.md -o out.html
+```
+
+不要在 Mac mini 上跑：
+
+```bash
+md2wechat upload_image ...
+md2wechat convert ... --upload
+md2wechat convert ... --draft
+```
+
+这些命令会让本机直接访问微信 API，从而再次撞上 IP 白名单。最终草稿创建交给 relay 完成。
 
 ## License
 
