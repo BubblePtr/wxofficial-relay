@@ -571,7 +571,7 @@ async function uploadImageBufferToWechat(file, kind, retryOnTokenError = true) {
   form.append('media', file.buffer, { filename, contentType: file.mimetype });
 
   const uploadUrl = kind === 'cover'
-    ? `${WX_API_BASE}/cgi-bin/material/add_material?access_token=${encodeURIComponent(token)}&type=image`
+    ? `${WX_API_BASE}/cgi-bin/material/add_material?access_token=${encodeURIComponent(token)}&type=thumb`
     : `${WX_API_BASE}/cgi-bin/media/uploadimg?access_token=${encodeURIComponent(token)}`;
 
   const res = await axios.post(uploadUrl, form, {
