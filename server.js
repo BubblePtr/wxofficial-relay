@@ -574,19 +574,27 @@ async function uploadImageBufferToWechat(file, kind, retryOnTokenError = true) {
     ? `${WX_API_BASE}/cgi-bin/material/add_material?access_token=${encodeURIComponent(token)}&type=thumb`
     : `${WX_API_BASE}/cgi-bin/media/uploadimg?access_token=${encodeURIComponent(token)}`;
 
-  const res = await axios.post(uploadUrl, form, {
-    headers: form.getHeaders(),
-    timeout: 30000,
-    maxBodyLength: MAX_IMAGE_BYTES + 1024 * 1024,
-  });
+  try {
+    const res = await axios.post(uploadUrl, form, {
+      headers: form.getHeaders(),
+      timeout: 60000,
+      maxBodyLength: MAX_IMAGE_BYTES + 1024 * 1024,
+    });
 
-  const body = res.data;
-  if (isTokenExpiredError(body) && retryOnTokenError) {
-    tokenCache = { access_token: null, expiresAt: 0 };
-    await getAccessToken({ forceRefresh: true });
-    return uploadImageBufferToWechat(file, kind, false);
+    const body = res.data;
+    if (isTokenExpiredError(body) && retryOnTokenError) {
+      tokenCache = { access_token: null, expiresAt: 0 };
+      await getAccessToken({ forceRefresh: true });
+      return uploadImageBufferToWechat(file, kind, false);
+    }
+    return body;
+  } catch (err) {
+    // Avoid stream/epipe errors escaping and crashing the process
+    if (err.code === 'EPIPE' || err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
+      throw new WxRelayError('upload_to_wechat', `Upload connection closed: ${err.code}`, { code: err.code });
+    }
+    throw err;
   }
-  return body;
 }
 
 function sanitizeFilename(filename) {
@@ -760,6 +768,18 @@ if (TLS_CERT && TLS_KEY && fs.existsSync(TLS_CERT) && fs.existsSync(TLS_KEY)) {
 
 getAccessToken().catch((err) => {
   log('WARN', 'Startup access_token warmup failed', { error: err.message });
+});
+
+process.on('uncaughtException', (err) => {
+  log('ERROR', 'Uncaught exception, shutting down', { error: err.message, stack: err.stack });
+  saveTokenToDisk();
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  log('ERROR', 'Unhandled rejection, shutting down', { error: reason?.message || String(reason), stack: reason?.stack });
+  saveTokenToDisk();
+  process.exit(1);
 });
 
 process.on('SIGTERM', () => { saveTokenToDisk(); process.exit(0); });
