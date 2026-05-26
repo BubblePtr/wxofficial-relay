@@ -5,9 +5,24 @@ const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.
 
 function listPackageAssets(assetsDir) {
   if (!assetsDir || !fs.existsSync(assetsDir)) return [];
-  return fs.readdirSync(assetsDir)
-    .filter((name) => SUPPORTED_IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()))
-    .map((name) => path.join(assetsDir, name));
+
+  let names;
+  try {
+    names = fs.readdirSync(assetsDir);
+  } catch (_) {
+    return [];
+  }
+
+  return names
+    .map((name) => path.join(assetsDir, name))
+    .filter((assetPath) => {
+      try {
+        return fs.statSync(assetPath).isFile()
+          && SUPPORTED_IMAGE_EXTENSIONS.has(path.extname(assetPath).toLowerCase());
+      } catch (_) {
+        return false;
+      }
+    });
 }
 
 async function optimizeAssets(assetsDir, opts = {}) {

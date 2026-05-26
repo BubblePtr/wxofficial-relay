@@ -11,7 +11,7 @@ const WxClient = require('../client');
 
 function createClientFromEnv() {
   return WxClient.create({
-    serverUrl: process.env.WX_PROXY_URL || 'https://localhost:3901',
+    serverUrl: process.env.WX_PROXY_URL || 'https://localhost:3900',
     apiKey: process.env.WX_PROXY_KEY || '',
     allowInsecureTLS: process.env.WX_PROXY_INSECURE_TLS === '1',
     caCertPath: process.env.WX_PROXY_CA_CERT || '',

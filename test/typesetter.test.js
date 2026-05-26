@@ -110,6 +110,13 @@ test('renderWechatHtml escapes raw html by default', () => {
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
 
+test('renderWechatHtml does not emit dangerous href attributes for unsafe schemes', () => {
+  const html = renderWechatHtml('[unsafe](javascript:alert(1))');
+
+  assert.match(html, /unsafe/);
+  assert.doesNotMatch(html, /href="javascript:/i);
+});
+
 test('sanitizeHref allows publishing-safe links and rejects unsafe protocols', () => {
   assert.equal(sanitizeHref('https://example.com'), 'https://example.com');
   assert.equal(sanitizeHref('./local-page'), './local-page');

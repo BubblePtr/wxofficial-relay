@@ -5,6 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const { validateArticlePackage } = require('../src/package/validate');
+const { createMinimalArticlePackage } = require('../src/package/schema');
 
 function validArticle(overrides = {}) {
   return {
@@ -14,6 +15,13 @@ function validArticle(overrides = {}) {
     ...overrides,
   };
 }
+
+test('createMinimalArticlePackage returns a schema-valid package skeleton', () => {
+  const result = validateArticlePackage(createMinimalArticlePackage());
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.errors, []);
+});
 
 test('validateArticlePackage treats max-length violations as errors', () => {
   const result = validateArticlePackage(validArticle({ title: 'x'.repeat(65) }));

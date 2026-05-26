@@ -13,10 +13,10 @@ const articlePackageSchema = {
 
 function createMinimalArticlePackage(overrides = {}) {
   return {
-    title: '',
+    title: 'Untitled Article',
     author: '',
     digest: '',
-    contentHtml: '',
+    contentHtml: '<p></p>',
     coverPath: '',
     assetsDir: '',
     images: [],
