@@ -1,0 +1,9 @@
+{
+  "title": "最小文章包示例",
+  "author": "山水郎",
+  "digest": "本地排版、云端中转、公众号草稿。",
+  "contentHtml": "<section data-role=\"wechat-typesetter\" style=\"...\">...</section>",
+  "coverPath": "./assets/cover.png",
+  "assetsDir": "./assets",
+  "images": []
+}

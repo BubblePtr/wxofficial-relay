@@ -1,17 +1,19 @@
 {
   "name": "wxofficial-relay",
   "version": "1.1.0",
-  "description": "WeChat Official Account API relay for fixed-IP draft creation",
+  "description": "Local WeChat publishing CLI and fixed-IP relay server",
   "main": "server.js",
   "bin": {
+    "wxpub": "./bin/wxpub.js",
     "wxofficial-relay-server": "./server.js",
-    "wxofficial-relay-client": "./client.js"
+    "wxofficial-relay-client": "./client.js",
+    "wechat-typesetter": "./typesetter.js"
   },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check client.js",
-    "test": "npm run check"
+    "check": "node --check server.js && node --check client.js && node --check typesetter.js && node --check bin/wxpub.js && node --check src/package/schema.js && node --check src/package/validate.js && node --check src/assets/optimize.js",
+    "test": "npm run check && node --test test/*.test.js"
   },
   "keywords": [
     "wechat",
@@ -19,7 +21,8 @@
     "official-account",
     "relay",
     "draft",
-    "fixed-ip"
+    "fixed-ip",
+    "wxpub"
   ],
   "license": "MIT",
   "dependencies": {
@@ -28,6 +31,8 @@
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",
     "form-data": "^4.0.0",
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.1",
     "multer": "^2.1.1"
   }
 }
