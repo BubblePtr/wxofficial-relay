@@ -26,7 +26,7 @@ function validateArticlePackage(article, opts = {}) {
       continue;
     }
     if (rule.minLength && value.trim().length < rule.minLength) errors.push(`${field} cannot be empty`);
-    if (rule.maxLength && value.length > rule.maxLength) warnings.push(`${field} is longer than ${rule.maxLength} chars`);
+    if (rule.maxLength && value.length > rule.maxLength) errors.push(`${field} exceeds max length ${rule.maxLength}`);
   }
 
   if (!article.coverPath && !article.coverMediaId && !article.cover_media_id && !article.thumb_media_id) {
@@ -39,16 +39,34 @@ function validateArticlePackage(article, opts = {}) {
 }
 
 function validateReferencedFiles(article, baseDir, errors, warnings) {
-  if (article.coverPath && !fs.existsSync(resolvePath(baseDir, article.coverPath))) {
-    errors.push(`coverPath does not exist: ${article.coverPath}`);
+  if (article.coverPath !== undefined && article.coverPath !== '') {
+    if (!isNonEmptyString(article.coverPath)) {
+      errors.push('coverPath must be a string');
+    } else if (!fs.existsSync(resolvePath(baseDir, article.coverPath))) {
+      errors.push(`coverPath does not exist: ${article.coverPath}`);
+    }
   }
-  if (article.assetsDir && !fs.existsSync(resolvePath(baseDir, article.assetsDir))) {
-    warnings.push(`assetsDir does not exist: ${article.assetsDir}`);
+
+  if (article.assetsDir !== undefined && article.assetsDir !== '') {
+    if (!isNonEmptyString(article.assetsDir)) {
+      errors.push('assetsDir must be a string');
+    } else if (!fs.existsSync(resolvePath(baseDir, article.assetsDir))) {
+      warnings.push(`assetsDir does not exist: ${article.assetsDir}`);
+    }
   }
+
   for (const [idx, image] of (article.images || []).entries()) {
+    if (!image || typeof image !== 'object' || Array.isArray(image)) {
+      errors.push(`images[${idx}] must be an object`);
+      continue;
+    }
     const filePath = image.path || image.filePath;
     if (!filePath) {
       warnings.push(`images[${idx}] has no path`);
+      continue;
+    }
+    if (!isNonEmptyString(filePath)) {
+      errors.push(`images[${idx}] path must be a string`);
       continue;
     }
     if (!fs.existsSync(resolvePath(baseDir, filePath))) errors.push(`images[${idx}] path does not exist: ${filePath}`);
@@ -58,6 +76,10 @@ function validateReferencedFiles(article, baseDir, errors, warnings) {
 function resolvePath(baseDir, value) {
   if (path.isAbsolute(value)) return value;
   return path.resolve(baseDir, value);
+}
+
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value.trim() !== '';
 }
 
 function isBlank(value) {

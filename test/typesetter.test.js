@@ -5,6 +5,7 @@ const {
   renderWechatHtml,
   renderPreviewHtml,
   parseMarkdownDocument,
+  sanitizeHref,
   readCliArgs,
   THEMES,
 } = require('../typesetter');
@@ -107,6 +108,14 @@ test('renderWechatHtml escapes raw html by default', () => {
 
   assert.doesNotMatch(html, /<script>/i);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+test('sanitizeHref allows publishing-safe links and rejects unsafe protocols', () => {
+  assert.equal(sanitizeHref('https://example.com'), 'https://example.com');
+  assert.equal(sanitizeHref('./local-page'), './local-page');
+  assert.equal(sanitizeHref('#section'), '#section');
+  assert.equal(sanitizeHref('javascript:alert(1)'), '');
+  assert.equal(sanitizeHref('data:text/html;base64,abc'), '');
 });
 
 test('renderPreviewHtml wraps content in a full preview document', () => {

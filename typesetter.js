@@ -206,11 +206,30 @@ function createMarkdownRenderer(theme) {
     return `<img src="${src}" alt="${alt}" style="${theme.img}"${titleAttr}>`;
   };
   md.renderer.rules.link_open = (tokens, idx) => {
-    const href = escapeHtml(tokens[idx].attrGet('href') || '');
+    const href = escapeHtml(sanitizeHref(tokens[idx].attrGet('href') || ''));
     return `<a href="${href}" style="${theme.a}">`;
   };
 
   return md;
+}
+
+function sanitizeHref(rawHref) {
+  const href = String(rawHref || '').trim();
+  if (!href) return '';
+  const lower = href.toLowerCase();
+  if (
+    lower.startsWith('http://') ||
+    lower.startsWith('https://') ||
+    lower.startsWith('mailto:') ||
+    lower.startsWith('tel:') ||
+    href.startsWith('/') ||
+    href.startsWith('./') ||
+    href.startsWith('../') ||
+    href.startsWith('#')
+  ) {
+    return href;
+  }
+  return '';
 }
 
 function renderCodeBlock(theme, content) {
@@ -301,6 +320,7 @@ module.exports = {
   renderWechatHtml,
   renderPreviewHtml,
   parseMarkdownDocument,
+  sanitizeHref,
   readCliArgs,
   THEMES,
 };
