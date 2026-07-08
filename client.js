@@ -8,6 +8,12 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const FormData = require('form-data');
+const {
+  applyClipboardHtmlToArticle,
+  captureClipboardHtmlFromPreview,
+  parseCaptureArgs,
+  writeArticleWithClipboardHtml,
+} = require('./src/clipboard/capture');
 
 class WxClient {
   constructor(opts = {}) {
@@ -116,6 +122,8 @@ class WxClient {
     form.append('need_open_comment', String(article.needOpenComment ?? article.need_open_comment ?? 0));
     form.append('only_fans_can_comment', String(article.onlyFansCanComment ?? article.only_fans_can_comment ?? 0));
     form.append('show_cover_pic', String(article.showCoverPic ?? article.show_cover_pic ?? 1));
+    if (article.compatMode || article.compat_mode) form.append('compat_mode', article.compatMode || article.compat_mode);
+    if (article.wechatCompat || article.wechat_compat) form.append('wechat_compat', '1');
 
     if (article.coverMediaId || article.cover_media_id || article.thumb_media_id) {
       form.append('cover_media_id', article.coverMediaId || article.cover_media_id || article.thumb_media_id);
@@ -195,7 +203,20 @@ function extractImageSrcs(html) {
 }
 
 function shouldSkipImageSrc(src) {
-  return !src || src.startsWith('data:') || src.includes('mmbiz.qpic.cn') || /^https?:\/\//i.test(src);
+  if (!src || src.startsWith('data:') || src.includes('mmbiz.qpic.cn')) return true;
+  if (/^https?:\/\//i.test(src)) return !isLoopbackHttpUrl(src);
+  return false;
+}
+
+function isLoopbackHttpUrl(src) {
+  try {
+    const url = new URL(src);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return hostname === 'localhost' || hostname === '::1' || hostname.startsWith('127.');
+  } catch (_err) {
+    return false;
+  }
 }
 
 function resolveLocalAssetPath(assetsDir, src) {
@@ -260,6 +281,12 @@ async function cli() {
       case 'draft:create-auto':
         console.log(JSON.stringify(await wx.createDraftAuto(JSON.parse(fs.readFileSync(args[1], 'utf-8'))), null, 2));
         break;
+      case 'clipboard:capture':
+        await runClipboardCaptureCommand(args.slice(1));
+        break;
+      case 'draft:create-from-preview':
+        await runCreateDraftFromPreviewCommand(wx, args.slice(1));
+        break;
       case 'publish:submit':
         console.log(JSON.stringify(await wx.publish.submit(args[1]), null, 2));
         break;
@@ -286,6 +313,56 @@ async function cli() {
     if (err.details) console.error('details:', JSON.stringify(err.details, null, 2));
     process.exit(1);
   }
+}
+
+async function runClipboardCaptureCommand(args) {
+  const opts = parseCaptureArgs(args);
+  if (opts.help) {
+    printClipboardCaptureHelp();
+    return;
+  }
+
+  const html = await captureClipboardHtmlFromPreview(opts);
+  const result = {
+    ok: true,
+    preview: opts.preview,
+    selector: opts.selector,
+    browser: opts.browser,
+    htmlLength: html.length,
+  };
+
+  if (opts.out) {
+    fs.mkdirSync(path.dirname(path.resolve(opts.out)), { recursive: true });
+    fs.writeFileSync(opts.out, html);
+    result.out = opts.out;
+  }
+
+  if (opts.article) {
+    const written = writeArticleWithClipboardHtml(opts.article, opts.outArticle, html);
+    result.outArticle = written.outPath;
+  }
+
+  if (!opts.out && !opts.article) process.stdout.write(html);
+  else console.log(JSON.stringify(result, null, 2));
+}
+
+async function runCreateDraftFromPreviewCommand(wx, args) {
+  const opts = parseCaptureArgs(args, { articleFromPosition: true, requireArticle: true });
+  if (opts.help) {
+    printCreateDraftFromPreviewHelp();
+    return;
+  }
+
+  const html = await captureClipboardHtmlFromPreview(opts);
+  const sourceArticle = JSON.parse(fs.readFileSync(opts.article, 'utf8'));
+  const article = applyClipboardHtmlToArticle(sourceArticle, html);
+
+  if (opts.outArticle) {
+    fs.mkdirSync(path.dirname(path.resolve(opts.outArticle)), { recursive: true });
+    fs.writeFileSync(opts.outArticle, `${JSON.stringify(article, null, 2)}\n`);
+  }
+
+  console.log(JSON.stringify(await wx.createDraftAuto(article), null, 2));
 }
 
 function printDraftList(result) {
@@ -315,6 +392,8 @@ function printHelp(serverUrl, apiKey) {
   console.log('  draft:get <media_id>');
   console.log('  draft:delete <media_id>');
   console.log('  draft:create-auto <article.json>');
+  console.log('  draft:create-from-preview <preview.html|url> <article.json> [--out-article file]');
+  console.log('  clipboard:capture <preview.html|url> [--out clipboard.html] [--article article.json]');
   console.log('  media:upload-cover <file>');
   console.log('  media:upload-inline <file>');
   console.log('  publish:submit <media_id>');
@@ -324,6 +403,43 @@ function printHelp(serverUrl, apiKey) {
   console.log(`  WX_PROXY_KEY=${apiKey ? '(set)' : '(missing)'}`);
 }
 
+function printClipboardCaptureHelp() {
+  console.log(`clipboard:capture <preview.html|url> [options]
+
+Options:
+  --out <file>             Write captured clipboard HTML to a file
+  --article <article.json> Write an article JSON with contentHtml replaced
+  --out-article <file>     Output path for rewritten article JSON
+  --selector <selector>    Element to copy, default #gzh-content
+  --engine <macos|playwright>
+  --headless / --headed    Playwright engine display mode
+  --browser <chrome|safari>
+  --wait-ms <ms>           Wait after opening preview, default 1200
+`);
+}
+
+function printCreateDraftFromPreviewHelp() {
+  console.log(`draft:create-from-preview <preview.html|url> <article.json> [options]
+
+Captures real browser clipboard HTML from the preview, sets
+compatMode="wechat-clipboard-html", uploads images, and creates a draft.
+
+Options:
+  --out-article <file>     Also save the rewritten article JSON
+  --selector <selector>    Element to copy, default #gzh-content
+  --engine <macos|playwright>
+  --headless / --headed    Playwright engine display mode
+  --browser <chrome|safari>
+  --wait-ms <ms>           Wait after opening preview, default 1200
+`);
+}
+
 if (require.main === module) cli();
+
+WxClient._internals = {
+  isLoopbackHttpUrl,
+  resolveLocalAssetPath,
+  shouldSkipImageSrc,
+};
 
 module.exports = WxClient;

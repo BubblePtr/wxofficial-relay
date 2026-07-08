@@ -14,6 +14,8 @@ bin/wxpub.js
 src/package/schema.js
 src/package/validate.js
 src/assets/optimize.js
+src/html/wechatCompat.js
+src/clipboard/capture.js
 docs/usage.md
 docs/troubleshooting.md
 examples/minimal/
@@ -78,6 +80,33 @@ wxpub relay token
 node typesetter.js render examples/minimal/article.md --theme warm -o examples/minimal/article.html
 node typesetter.js preview examples/minimal/article.md --theme warm -o examples/minimal/preview.html
 ```
+
+## contentHtml draft workflow
+
+The relay expects article content to arrive as already-rendered `contentHtml`.
+For browser-oriented WeChat HTML, choose an explicit compatibility mode:
+
+- `wechat-editor-safe`: downgrades risky layout such as `flex`, `grid`, SVG,
+  large fixed-width wrappers, and table tags before creating API drafts.
+- `wechat-clipboard-html`: preserves real browser clipboard `text/html` after a
+  verified copy action, while still uploading/replacing inline images and
+  rejecting unresolved local artifacts.
+
+The helper command below captures `#gzh-content` from a preview, sets
+`compatMode="wechat-clipboard-html"`, uploads images, and creates a draft. It
+does not publish:
+
+```bash
+node client.js draft:create-from-preview path/to/preview.html path/to/article.json \
+  --engine playwright \
+  --headless \
+  --out-article path/to/article.clipboard.json
+```
+
+The Playwright engine uses an isolated Chromium context and browser-context
+clipboard permissions. It does not read or overwrite the macOS system clipboard.
+The relay URL and API key must come from environment variables; do not commit
+credentials or generated draft payloads.
 
 更多见：
 
