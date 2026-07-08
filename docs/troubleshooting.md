@@ -41,10 +41,67 @@ For the minimal version, verify only the relay and token commands first. Draft c
 
 ## HTML looks different inside WeChat
 
-WeChat strips many tags and styles. Keep output boring:
+WeChat strips or misrenders many browser-oriented tags and styles. A local
+390px browser preview is only a precheck; it is not proof that the API-created
+draft will render correctly inside the WeChat editor.
+
+For API-created drafts from gzh-design-like themes, set:
+
+```json
+{
+  "compatMode": "wechat-editor-safe"
+}
+```
+
+The relay will rewrite the highest-risk structures while preserving visual
+tokens where practical. Watch for:
 
 - inline styles only
 - no class names
 - no external CSS
 - no scripts
-- simple headings, paragraphs, quotes, lists, code blocks, and images
+- no raw `flex` / `grid` / SVG decorations / fixed desktop-width wrappers
+- convert table-like content to mobile cards or block sections
+
+If the mobile editor shows vertical letter-by-letter text, narrow columns, or a
+desktop-like two-column hero, regenerate or update the draft with compatibility
+mode before publishing.
+
+If manual copy-paste from the preview page looks correct but `wechat-editor-safe`
+looks too plain, capture the real browser clipboard `text/html` and create the
+draft with:
+
+```json
+{
+  "compatMode": "wechat-clipboard-html"
+}
+```
+
+This is a fidelity-first path for verified clipboard HTML. It intentionally keeps
+clipboard structures such as `flex` and SVG when WeChat accepts them, while still
+uploading and rewriting inline images. Do not feed it the raw preview source; use
+the actual clipboard HTML captured from the browser copy action, then verify the
+result in the Official Account backend and mobile preview before publishing.
+
+## Clipboard capture command fails
+
+`clipboard:capture` and `draft:create-from-preview` are local capture helpers;
+the relay server does not generate clipboard HTML itself. The default macOS
+engine uses a visible browser plus the system clipboard. The Playwright engine
+uses an isolated Chromium browser context and does not read or overwrite the
+macOS system clipboard.
+
+If capture fails:
+
+- Confirm the preview contains `#gzh-content`, or pass `--selector`.
+- Try `--engine playwright --headless` to use isolated Chromium instead of the
+  visible macOS browser automation path.
+- Try `--browser safari` or `--browser chrome`.
+- Allow the terminal app to control the browser and System Events in macOS
+  Privacy & Security settings.
+- For Chrome/Safari JavaScript automation, enable JavaScript from Apple Events
+  if the browser blocks the selection script.
+- If Playwright reports that it cannot read `text/html`, treat that as a real
+  failure. Do not use raw `innerHTML` as a replacement.
+- Fall back to `clipboard-inspector.html`: copy from the preview manually, paste
+  into the inspector, then use the exported `clipboard.html`.

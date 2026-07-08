@@ -17,6 +17,13 @@ const dns = require('dns').promises;
 const net = require('net');
 const multer = require('multer');
 const FormData = require('form-data');
+const {
+  COMPAT_MODE_CLIPBOARD_HTML,
+  applyWechatCompatMode,
+  findClipboardHtmlApiSafetyIssues,
+  isKnownWechatCompatMode,
+  normalizeWechatCompatMode,
+} = require('./src/html/wechatCompat');
 
 const WX_API_BASE = 'https://api.weixin.qq.com';
 const MAX_IMAGE_BYTES = parseSize(process.env.MAX_IMAGE_SIZE || '10mb');
@@ -401,7 +408,7 @@ app.post('/api/draft/update', async (req, res) => {
     const { media_id, ...payload } = req.body;
     const data = await callWxApi({
       path: '/cgi-bin/draft/update',
-      data: { media_id, ...payload },
+      data: { media_id, ...applyWechatCompatToDraftUpdate(payload) },
       stage: 'draft_update',
     });
     res.json(data);
@@ -428,6 +435,9 @@ async function createDraftAuto(body, files) {
   const author = body.author || '';
   const digest = body.digest || '';
   const contentSourceUrl = body.content_source_url || body.contentSourceUrl || '';
+  const compatMode = requireKnownWechatCompatMode(body);
+
+  content = applyWechatCompatToContent(content, body);
 
   let thumbMediaId = body.cover_media_id || body.thumb_media_id || '';
   const cover = files.cover?.[0];
@@ -444,6 +454,7 @@ async function createDraftAuto(body, files) {
   for (const [oldSrc, newSrc] of Object.entries(replacements)) {
     content = content.split(oldSrc).join(newSrc);
   }
+  if (compatMode === COMPAT_MODE_CLIPBOARD_HTML) assertApiReadyClipboardHtml(content);
 
   const draftPayload = {
     articles: [{
@@ -466,6 +477,71 @@ async function createDraftAuto(body, files) {
     thumb_media_id: thumbMediaId,
     image_replacements: replacements,
   };
+}
+
+function applyWechatCompatToContent(content, value = {}) {
+  requireKnownWechatCompatMode(value);
+  return applyWechatCompatMode(content, value);
+}
+
+function requireKnownWechatCompatMode(value = {}) {
+  const mode = normalizeWechatCompatMode(value);
+  if (!isKnownWechatCompatMode(mode)) {
+    throw new WxRelayError('validation', `Unsupported compat_mode: ${mode}`);
+  }
+  return mode;
+}
+
+function applyWechatCompatToDraftUpdate(payload) {
+  const mode = requireKnownWechatCompatMode(payload);
+  if (!mode) return payload;
+
+  const out = { ...payload };
+  delete out.compat_mode;
+  delete out.compatMode;
+  delete out.wechat_compat;
+  delete out.wechatCompat;
+
+  if (mode === COMPAT_MODE_CLIPBOARD_HTML) {
+    assertApiReadyClipboardDraftPayload(out);
+    return out;
+  }
+
+  if (out.articles && typeof out.articles.content === 'string') {
+    out.articles = {
+      ...out.articles,
+      content: applyWechatCompatMode(out.articles.content, payload),
+    };
+  }
+
+  if (Array.isArray(out.articles)) {
+    out.articles = out.articles.map((article) => (
+      article && typeof article.content === 'string'
+        ? { ...article, content: applyWechatCompatMode(article.content, payload) }
+        : article
+    ));
+  }
+
+  return out;
+}
+
+function assertApiReadyClipboardDraftPayload(payload) {
+  if (payload.articles && typeof payload.articles.content === 'string') {
+    assertApiReadyClipboardHtml(payload.articles.content);
+  }
+
+  if (Array.isArray(payload.articles)) {
+    for (const article of payload.articles) {
+      if (article && typeof article.content === 'string') assertApiReadyClipboardHtml(article.content);
+    }
+  }
+}
+
+function assertApiReadyClipboardHtml(content) {
+  const issues = findClipboardHtmlApiSafetyIssues(content);
+  if (issues.length) {
+    throw new WxRelayError('validation', `wechat-clipboard-html content is not API-ready: ${issues.join(', ')}`);
+  }
 }
 
 function requireField(value, name) {
