@@ -73,6 +73,7 @@ function findClipboardHtmlApiSafetyIssues(html) {
 
   if (/file:\/\//i.test(text)) issues.push('file:// URLs');
   if (/data:image\//i.test(text)) issues.push('data:image URLs');
+  if (/wxrelay-inline:\/\//i.test(text)) issues.push('unresolved clipboard image tokens');
   if (/\{\{[^}]+\}\}/.test(text)) issues.push('template placeholders');
 
   for (const src of extractImageSrcs(text)) {

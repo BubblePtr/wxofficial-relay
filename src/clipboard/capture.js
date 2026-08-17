@@ -144,25 +144,7 @@ async function captureClipboardHtmlWithPlaywright(opts = {}) {
     const page = await context.newPage();
     await page.goto(previewTarget.url, { waitUntil: 'load' });
     await page.waitForTimeout(Number(opts.waitMs ?? DEFAULT_WAIT_MS));
-    await page.evaluate(buildSelectScript(opts.selector || DEFAULT_SELECTOR));
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+C' : 'Control+C');
-    await page.waitForTimeout(200);
-
-    const html = await page.evaluate(async () => {
-      if (!navigator.clipboard?.read) return '';
-      const items = await navigator.clipboard.read();
-      for (const item of items) {
-        if (!item.types.includes('text/html')) continue;
-        const blob = await item.getType('text/html');
-        return await blob.text();
-      }
-      return '';
-    });
-
-    if (!html || !html.trim()) {
-      throw new Error('Playwright could not read text/html from browser clipboard');
-    }
-    return html;
+    return await copyPreviewHtmlWithPlaywright(page, opts.selector || DEFAULT_SELECTOR);
   } finally {
     if (browser) await browser.close();
     if (previewTarget.close) await previewTarget.close();
@@ -317,6 +299,76 @@ function buildSelectScript(selector) {
   })();`;
 }
 
+async function copyPreviewHtmlWithPlaywright(page, selector) {
+  const sourceImgCount = await page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) throw new Error('Selector not found: ' + sel);
+    return el.querySelectorAll('img').length;
+  }, selector);
+
+  await page.evaluate(async (sel) => {
+    const el = document.querySelector(sel);
+    const imgs = [...el.querySelectorAll('img')];
+    await Promise.all(imgs.map((img) => {
+      if (img.complete) return undefined;
+      return new Promise((resolve) => {
+        img.addEventListener('load', resolve, { once: true });
+        img.addEventListener('error', resolve, { once: true });
+      });
+    }));
+    // Force absolute http(s) src so Chromium does not drop relative/file images on copy.
+    for (const img of imgs) {
+      if (img.currentSrc || img.src) img.setAttribute('src', img.currentSrc || img.src);
+    }
+  }, selector);
+
+  const copyButton = page.getByRole('button', { name: /复制到公众号/ });
+  if (await copyButton.count()) {
+    await copyButton.first().click();
+  } else {
+    const copied = await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return document.execCommand('copy');
+    }, selector);
+    if (!copied) {
+      throw new Error('document.execCommand("copy") failed');
+    }
+  }
+
+  await page.waitForTimeout(200);
+  const html = await page.evaluate(async () => {
+    if (!navigator.clipboard?.read) return '';
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      if (!item.types.includes('text/html')) continue;
+      const blob = await item.getType('text/html');
+      return await blob.text();
+    }
+    return '';
+  });
+
+  if (!html || !html.trim()) {
+    throw new Error('Playwright could not read text/html from browser clipboard');
+  }
+
+  const capturedImgCount = (html.match(/<img\b/gi) || []).length;
+  if (sourceImgCount > 0 && capturedImgCount === 0) {
+    throw new Error(
+      `Playwright clipboard HTML dropped all ${sourceImgCount} <img> tags. `
+      + 'Serve the preview over http (Playwright engine) so images are not file://, '
+      + 'or use the preview “复制到公众号” button.',
+    );
+  }
+
+  return html;
+}
+
 async function runAppleScript(lines, argv = []) {
   const args = [];
   for (const line of lines) args.push('-e', line);
@@ -342,6 +394,7 @@ module.exports = {
   buildSelectScript,
   captureClipboardHtmlFromPreview,
   captureClipboardHtmlWithPlaywright,
+  copyPreviewHtmlWithPlaywright,
   defaultOutArticlePath,
   loadPlaywright,
   parseCaptureArgs,

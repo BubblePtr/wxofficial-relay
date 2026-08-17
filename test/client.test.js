@@ -43,6 +43,25 @@ test('createDraftAuto can request clipboard HTML compatibility mode without lega
   assert.doesNotMatch(body, /name="wechat_compat"/);
 });
 
+test('createDraftAuto materializes clipboard data:image srcs into uploaded files', async () => {
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const client = WxClient.create({ serverUrl: 'https://relay.example.test', apiKey: 'test-key' });
+  client._postForm = async (_route, form) => form;
+
+  const form = await client.createDraftAuto({
+    title: '标题',
+    contentHtml: `<section><img src="data:image/png;base64,${png}"></section>`,
+    coverMediaId: 'cover-media-id',
+    compatMode: 'wechat-clipboard-html',
+  });
+
+  const textParts = form._streams.filter((part) => typeof part === 'string').join('\n');
+  assert.match(textParts, /wxrelay-inline:\/\/clipboard-inline-1\.png/);
+  assert.doesNotMatch(textParts, /data:image\/png;base64,/);
+  assert.match(textParts, /name="images"/);
+  assert.match(textParts, /clipboard-inline-1\.png/);
+});
+
 test('loopback preview image URLs are eligible for local asset upload', () => {
   const { isLoopbackHttpUrl, resolveLocalAssetPath, shouldSkipImageSrc } = WxClient._internals;
   const assetsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wxrelay-assets-'));

@@ -95,3 +95,8 @@ test('buildSelectScript targets the requested selector', () => {
   assert.match(script, /#gzh-content/);
   assert.match(script, /createRange/);
 });
+
+test('Playwright capture helper is exported for image-preserving copy', () => {
+  const capture = require('../src/clipboard/capture');
+  assert.equal(typeof capture.copyPreviewHtmlWithPlaywright, 'function');
+});
