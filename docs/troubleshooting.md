@@ -103,5 +103,14 @@ If capture fails:
   if the browser blocks the selection script.
 - If Playwright reports that it cannot read `text/html`, treat that as a real
   failure. Do not use raw `innerHTML` as a replacement.
+- Chromium strips `<img>` whose `src` is `file://` or an unresolved relative
+  path. The Playwright engine serves the preview over `http://127.0.0.1` and
+  rewrites image srcs to absolute loopback URLs before copy. If every `<img>`
+  still disappears, fail the capture instead of creating an empty-image draft.
+- Clipboard HTML may contain `data:image` after a preview “复制到公众号”
+  action. `createDraftAuto` extracts those payloads, uploads them as inline
+  images, and replaces them with `mmbiz.qpic.cn` URLs so the WeChat content
+  field does not overflow. Leftover `data:image` or `wxrelay-inline://`
+  tokens after upload still fail validation.
 - Fall back to `clipboard-inspector.html`: copy from the preview manually, paste
   into the inspector, then use the exported `clipboard.html`.

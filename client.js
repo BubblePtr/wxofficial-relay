@@ -14,6 +14,7 @@ const {
   parseCaptureArgs,
   writeArticleWithClipboardHtml,
 } = require('./src/clipboard/capture');
+const { materializeClipboardDataImages } = require('./src/html/dataImages');
 
 class WxClient {
   constructor(opts = {}) {
@@ -114,10 +115,12 @@ class WxClient {
 
   async createDraftAuto(article) {
     const form = new FormData();
+    const materialized = materializeClipboardDataImages(article.contentHtml || article.content || '');
+    const contentHtml = materialized.html;
     form.append('title', article.title || '');
     form.append('author', article.author || '');
     form.append('digest', article.digest || '');
-    form.append('content_html', article.contentHtml || article.content || '');
+    form.append('content_html', contentHtml);
     form.append('content_source_url', article.contentSourceUrl || article.content_source_url || '');
     form.append('need_open_comment', String(article.needOpenComment ?? article.need_open_comment ?? 0));
     form.append('only_fans_can_comment', String(article.onlyFansCanComment ?? article.only_fans_can_comment ?? 0));
@@ -132,7 +135,8 @@ class WxClient {
     }
 
     const imageMap = {};
-    for (const image of article.images || []) {
+
+    for (const image of [...(article.images || []), ...materialized.images]) {
       const src = image.src || image.url || image.path;
       const filePath = image.path || image.filePath;
       if (!src || !filePath) continue;
@@ -142,7 +146,7 @@ class WxClient {
     }
 
     if (article.assetsDir) {
-      const srcs = extractImageSrcs(article.contentHtml || article.content || '');
+      const srcs = extractImageSrcs(contentHtml);
       for (const src of srcs) {
         if (shouldSkipImageSrc(src) || imageMap[src]) continue;
         const localPath = resolveLocalAssetPath(article.assetsDir, src);
